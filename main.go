@@ -1,11 +1,7 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -13,99 +9,113 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
+	"gopkg.in/go-webhelp/whoauth2.v1"
+	"gopkg.in/webhelp.v1/whcompat"
+	"gopkg.in/webhelp.v1/whfatal"
+	"gopkg.in/webhelp.v1/whlog"
+	"gopkg.in/webhelp.v1/whmux"
+	"gopkg.in/webhelp.v1/whsess"
 )
 
-func getClient(ctx context.Context, config *oauth2.Config) (*http.Client, error) {
-	tok, err := tokenFromFile("token.json")
-	if err != nil {
-		tok, err = getTokenFromWeb(ctx, config)
-		if err != nil {
-			return nil, err
-		}
-		err = saveToken("token.json", tok)
-		if err != nil {
-			log.Printf("failed saving token: %v", err)
-		}
+var (
+	// defined for real in a .gitignored secrets.go init function
+	cookieSecret = []byte("secret")
+	baseURL      = "https://pagename"
+	oauthId      = "id"
+	oauthSecret  = "secret"
+	gcpProjectId = "gcp-project"
+)
+
+func listenAddr() string {
+	if p := os.Getenv("PORT"); p != "" {
+		return ":" + p
 	}
-	return config.Client(ctx, tok), nil
+	return ":7070"
 }
 
-func tokenFromFile(path string) (*oauth2.Token, error) {
-	fh, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer fh.Close()
-	var tok oauth2.Token
-	err = json.NewDecoder(fh).Decode(&tok)
-	return &tok, err
+type IndexHandler struct {
+	p *whoauth2.ProviderHandler
 }
 
-func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token, error) {
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to %v and then type the code:", authURL)
-	var authCode string
-	_, err := fmt.Scan(&authCode)
+func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := whcompat.Context(r)
+	t, err := h.p.Token(ctx)
 	if err != nil {
-		return nil, err
+		whfatal.Error(err)
 	}
-	tok, err := config.Exchange(ctx, authCode)
-	if err != nil {
-		return nil, err
+	w.Header().Set("Content-Type", "text/html")
+	if t != nil {
+		fmt.Fprintf(w, `
+		  <p>Logged in | <a href="%s">Log out</a></p>
+	  `, h.p.LogoutURL("/"))
+	} else {
+		fmt.Fprintf(w, `
+		  <p><a href="%s">Log in</a> | Logged out</p>
+	  `, h.p.LoginURL(r.RequestURI, false))
 	}
-	return tok, nil
+
+	fmt.Fprintf(w, `<p><a href="/settings">Settings</a></p>`)
 }
 
-func saveToken(path string, tok *oauth2.Token) error {
-	fh, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	err = json.NewEncoder(fh).Encode(tok)
-	if err != nil {
-		fh.Close()
-		return err
-	}
-	return fh.Close()
+type SettingsHandler struct {
+	p *whoauth2.ProviderHandler
 }
 
-func main() {
-	err := Main(context.Background())
+func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := whcompat.Context(r)
+	t, err := h.p.Token(ctx)
 	if err != nil {
-		panic(err)
+		whfatal.Error(err)
 	}
-}
 
-func Main(ctx context.Context) error {
-	creds, err := ioutil.ReadFile("credentials.json")
+	srv, err := calendar.New(h.p.Provider().Config.Client(ctx, t))
 	if err != nil {
-		return err
-	}
-	config, err := google.ConfigFromJSON(creds, calendar.CalendarReadonlyScope)
-	if err != nil {
-		return err
-	}
-	client, err := getClient(ctx, config)
-	if err != nil {
-		return err
-	}
-	srv, err := calendar.New(client)
-	if err != nil {
-		return err
+		whfatal.Error(err)
 	}
 	events, err := srv.Events.List("primary").
 		ShowDeleted(false).SingleEvents(true).
 		TimeMin(time.Now().Format(time.RFC3339)).
 		MaxResults(10).OrderBy("startTime").Do()
 	if err != nil {
-		return err
+		whfatal.Error(err)
 	}
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<h3>Restricted</h3>`)
+	fmt.Fprintf(w, `
+		  <p>Logged in | <a href="%s">Log out</a></p>
+		  <pre>`, h.p.LogoutURL("/"))
+
 	for _, item := range events.Items {
 		date := item.Start.DateTime
 		if date == "" {
 			date = item.Start.Date
 		}
-		fmt.Printf("%v (%v)\n", item.Summary, date)
+		fmt.Fprintf(w, "%v (%v)\n", item.Summary, date)
 	}
-	return nil
+
+	fmt.Fprintf(w, `</pre>`)
+}
+
+func main() {
+	oauth := whoauth2.NewProviderHandler(
+		whoauth2.Google(whoauth2.Config(oauth2.Config{
+			ClientID:     oauthId,
+			ClientSecret: oauthSecret,
+			Endpoint:     google.Endpoint,
+			RedirectURL:  baseURL + "/auth/_cb",
+			Scopes:       []string{calendar.CalendarEventsScope},
+		})), "oauth-google", "/auth", whoauth2.RedirectURLs{})
+	oauth.RequestOfflineTokens()
+
+	panic(whlog.ListenAndServe(listenAddr(),
+		whlog.LogRequests(whlog.Default,
+			whlog.LogResponses(whlog.Default,
+				whsess.HandlerWithStore(whsess.NewCookieStore(cookieSecret),
+					whfatal.Catch(
+						whmux.Dir{
+							"": whmux.Exact(&IndexHandler{p: oauth}),
+							"settings": oauth.LoginRequired(whmux.Exact(
+								&SettingsHandler{p: oauth})),
+							"auth": oauth}))))))
 }
