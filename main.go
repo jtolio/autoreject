@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
+	goauth2 "google.golang.org/api/oauth2/v2"
 	"gopkg.in/go-webhelp/whoauth2.v1"
 	"gopkg.in/webhelp.v1/whcompat"
 	"gopkg.in/webhelp.v1/whfatal"
@@ -61,6 +63,25 @@ type SettingsHandler struct {
 	p *whoauth2.ProviderHandler
 }
 
+func (h *SettingsHandler) getUserId(ctx context.Context) string {
+	t, err := h.p.Token(ctx)
+	if err != nil {
+		whfatal.Error(err)
+	}
+	svc, err := goauth2.New(h.p.Provider().Config.Client(ctx, t))
+	if err != nil {
+		whfatal.Error(err)
+	}
+	ti, err := svc.Tokeninfo().Do()
+	if err != nil {
+		whfatal.Error(err)
+	}
+	if len(ti.UserId) == 0 {
+		whfatal.Error(fmt.Errorf("invalid user id"))
+	}
+	return ti.UserId
+}
+
 func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
 	t, err := h.p.Token(ctx)
@@ -95,6 +116,7 @@ func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintf(w, `</pre>`)
+	fmt.Fprintf(w, `<pre>%s</pre>`, h.getUserId(ctx))
 }
 
 func main() {
@@ -104,7 +126,10 @@ func main() {
 			ClientSecret: oauthSecret,
 			Endpoint:     google.Endpoint,
 			RedirectURL:  baseURL + "/auth/_cb",
-			Scopes:       []string{calendar.CalendarEventsScope},
+			Scopes: []string{
+				goauth2.OpenIDScope,
+				calendar.CalendarEventsScope,
+			},
 		})), "oauth-google", "/auth", whoauth2.RedirectURLs{})
 	oauth.RequestOfflineTokens()
 
