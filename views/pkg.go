@@ -52,3 +52,9 @@ func (rend *Renderer) Render(w http.ResponseWriter, r *http.Request,
 		Values:    values,
 	})
 }
+
+func (rend *Renderer) Simple(template string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rend.Render(w, r, template, nil)
+	})
+}

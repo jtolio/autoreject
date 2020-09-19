@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/jtolio/autoreject/views"
 	"golang.org/x/oauth2"
@@ -36,22 +37,33 @@ func listenAddr() string {
 	return ":7070"
 }
 
-func SimpleHandler(rend *views.Renderer, template string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rend.Render(w, r, template, nil)
-	})
-}
-
-type SettingsHandler struct {
-	r *views.Renderer
-}
-
-func (h *SettingsHandler) getUserId(ctx context.Context) string {
-	t, err := h.r.Provider.Token(ctx)
+func idGen() string {
+	var data [32]byte
+	_, err := rand.Read(data[:])
 	if err != nil {
 		whfatal.Error(err)
 	}
-	svc, err := goauth2.New(h.r.Provider.Provider().Config.Client(ctx, t))
+	return hex.EncodeToString(data[:])
+}
+
+type Site struct {
+	r *views.Renderer
+}
+
+func (s *Site) Token(ctx context.Context) *oauth2.Token {
+	t, err := s.r.Provider.Token(ctx)
+	if err != nil {
+		whfatal.Error(err)
+	}
+	return t
+}
+
+func (s *Site) OAuth2Client(ctx context.Context) *http.Client {
+	return s.r.Provider.Provider().Config.Client(ctx, s.Token(ctx))
+}
+
+func (s *Site) UserId(ctx context.Context) string {
+	svc, err := goauth2.New(s.OAuth2Client(ctx))
 	if err != nil {
 		whfatal.Error(err)
 	}
@@ -65,28 +77,57 @@ func (h *SettingsHandler) getUserId(ctx context.Context) string {
 	return ti.UserId
 }
 
-func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
-	t, err := h.r.Provider.Token(ctx)
+	srv, err := calendar.New(s.OAuth2Client(ctx))
 	if err != nil {
 		whfatal.Error(err)
 	}
 
-	srv, err := calendar.New(h.r.Provider.Provider().Config.Client(ctx, t))
-	if err != nil {
-		whfatal.Error(err)
-	}
-	events, err := srv.Events.List("primary").
-		ShowDeleted(false).SingleEvents(true).
-		TimeMin(time.Now().Format(time.RFC3339)).
-		MaxResults(10).OrderBy("startTime").Do()
+	var calendars []*calendar.CalendarListEntry
+	err = srv.CalendarList.List().Context(ctx).Pages(ctx,
+		func(l *calendar.CalendarList) error {
+			for _, item := range l.Items {
+				switch item.AccessRole {
+				case "writer", "owner":
+				default:
+					continue
+				}
+				if item.Deleted || item.Hidden {
+					continue
+				}
+				calendars = append(calendars, item)
+			}
+			return nil
+		})
 	if err != nil {
 		whfatal.Error(err)
 	}
 
-	h.r.Render(w, r, "settings", map[string]interface{}{
-		"Events": events,
+	s.r.Render(w, r, "settings", map[string]interface{}{
+		"Calendars": calendars,
 	})
+}
+
+func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
+	ctx := whcompat.Context(r)
+	srv, err := calendar.New(s.OAuth2Client(ctx))
+	if err != nil {
+		whfatal.Error(err)
+	}
+
+	_ = &calendar.Channel{
+		Address: baseURL + "/event",
+		Id:      idGen(),
+		Type:    "web_hook",
+	}
+	_ = srv
+
+	whfatal.Redirect("/settings")
+}
+
+func (s *Site) Unregister(w http.ResponseWriter, r *http.Request) {
+	whfatal.Redirect("/settings")
 }
 
 func main() {
@@ -98,11 +139,13 @@ func main() {
 			RedirectURL:  baseURL + "/auth/_cb",
 			Scopes: []string{
 				goauth2.OpenIDScope,
+				calendar.CalendarReadonlyScope,
 				calendar.CalendarEventsScope,
 			},
 		})), "oauth-google", "/auth", whoauth2.RedirectURLs{})
 	oauth.RequestOfflineTokens()
 	rend := views.NewRenderer(oauth)
+	site := &Site{r: rend}
 
 	panic(whlog.ListenAndServe(listenAddr(),
 		whlog.LogRequests(whlog.Default,
@@ -110,8 +153,12 @@ func main() {
 				whsess.HandlerWithStore(whsess.NewCookieStore(cookieSecret),
 					whfatal.Catch(
 						whmux.Dir{
-							"": whmux.Exact(SimpleHandler(rend, "index")),
+							"": whmux.Exact(rend.Simple("index")),
 							"settings": oauth.LoginRequired(whmux.Exact(
-								&SettingsHandler{r: rend})),
+								http.HandlerFunc(site.Settings))),
+							"register": oauth.LoginRequired(whmux.Exact(
+								http.HandlerFunc(site.Register))),
+							"unregister": oauth.LoginRequired(whmux.Exact(
+								http.HandlerFunc(site.Unregister))),
 							"auth": oauth}))))))
 }
