@@ -15,6 +15,9 @@ type DSChannel struct {
 	// Datastore Key should be NameKey("Channel", channelId, userKey)
 	CalId      string
 	ResourceId string
+
+	// TODO: Expiration
+	// TODO: cron job to unexpire
 }
 
 type DSOAuth2Token struct {

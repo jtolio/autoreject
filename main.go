@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/jtolio/autoreject/views"
-	"github.com/kr/pretty"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
@@ -146,7 +145,7 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
-	whlog.Default("event: %s", pretty.Sprint(r))
+	// TODO
 }
 
 func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
