@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jtolio/autoreject/views"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
@@ -35,40 +36,22 @@ func listenAddr() string {
 	return ":7070"
 }
 
-type IndexHandler struct {
-	p *whoauth2.ProviderHandler
-}
-
-func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := whcompat.Context(r)
-	t, err := h.p.Token(ctx)
-	if err != nil {
-		whfatal.Error(err)
-	}
-	w.Header().Set("Content-Type", "text/html")
-	if t != nil {
-		fmt.Fprintf(w, `
-		  <p>Logged in | <a href="%s">Log out</a></p>
-	  `, h.p.LogoutURL("/"))
-	} else {
-		fmt.Fprintf(w, `
-		  <p><a href="%s">Log in</a> | Logged out</p>
-	  `, h.p.LoginURL(r.RequestURI, false))
-	}
-
-	fmt.Fprintf(w, `<p><a href="/settings">Settings</a></p>`)
+func SimpleHandler(rend *views.Renderer, template string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rend.Render(w, r, template, nil)
+	})
 }
 
 type SettingsHandler struct {
-	p *whoauth2.ProviderHandler
+	r *views.Renderer
 }
 
 func (h *SettingsHandler) getUserId(ctx context.Context) string {
-	t, err := h.p.Token(ctx)
+	t, err := h.r.Provider.Token(ctx)
 	if err != nil {
 		whfatal.Error(err)
 	}
-	svc, err := goauth2.New(h.p.Provider().Config.Client(ctx, t))
+	svc, err := goauth2.New(h.r.Provider.Provider().Config.Client(ctx, t))
 	if err != nil {
 		whfatal.Error(err)
 	}
@@ -84,12 +67,12 @@ func (h *SettingsHandler) getUserId(ctx context.Context) string {
 
 func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
-	t, err := h.p.Token(ctx)
+	t, err := h.r.Provider.Token(ctx)
 	if err != nil {
 		whfatal.Error(err)
 	}
 
-	srv, err := calendar.New(h.p.Provider().Config.Client(ctx, t))
+	srv, err := calendar.New(h.r.Provider.Provider().Config.Client(ctx, t))
 	if err != nil {
 		whfatal.Error(err)
 	}
@@ -101,22 +84,9 @@ func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		whfatal.Error(err)
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<h3>Restricted</h3>`)
-	fmt.Fprintf(w, `
-		  <p>Logged in | <a href="%s">Log out</a></p>
-		  <pre>`, h.p.LogoutURL("/"))
-
-	for _, item := range events.Items {
-		date := item.Start.DateTime
-		if date == "" {
-			date = item.Start.Date
-		}
-		fmt.Fprintf(w, "%v (%v)\n", item.Summary, date)
-	}
-
-	fmt.Fprintf(w, `</pre>`)
-	fmt.Fprintf(w, `<pre>%s</pre>`, h.getUserId(ctx))
+	h.r.Render(w, r, "settings", map[string]interface{}{
+		"Events": events,
+	})
 }
 
 func main() {
@@ -132,6 +102,7 @@ func main() {
 			},
 		})), "oauth-google", "/auth", whoauth2.RedirectURLs{})
 	oauth.RequestOfflineTokens()
+	rend := views.NewRenderer(oauth)
 
 	panic(whlog.ListenAndServe(listenAddr(),
 		whlog.LogRequests(whlog.Default,
@@ -139,8 +110,8 @@ func main() {
 				whsess.HandlerWithStore(whsess.NewCookieStore(cookieSecret),
 					whfatal.Catch(
 						whmux.Dir{
-							"": whmux.Exact(&IndexHandler{p: oauth}),
+							"": whmux.Exact(SimpleHandler(rend, "index")),
 							"settings": oauth.LoginRequired(whmux.Exact(
-								&SettingsHandler{p: oauth})),
+								&SettingsHandler{r: rend})),
 							"auth": oauth}))))))
 }
