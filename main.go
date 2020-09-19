@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 
@@ -145,7 +146,11 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
-	// TODO
+	data, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		whfatal.Error(err)
+	}
+	whlog.Default("event post: %q", string(data))
 }
 
 func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
@@ -241,20 +246,19 @@ func main() {
 	site := &Site{r: rend, db: db}
 
 	panic(whlog.ListenAndServe(listenAddr(),
-		whlog.LogRequests(whlog.Default, whlog.LogResponses(whlog.Default,
-			whcache.Register(
-				whsess.HandlerWithStore(whsess.NewCookieStore(cookieSecret),
-					whfatal.Catch(
-						whmux.Dir{
-							"":      whmux.Exact(rend.Simple("index")),
-							"event": http.HandlerFunc(site.Event),
-							"settings": site.LoginRequired(whmux.Exact(
-								http.HandlerFunc(site.Settings))),
-							"register": site.LoginRequired(whmux.ExactPath(
-								whmux.RequireMethod("POST",
-									http.HandlerFunc(site.Register)))),
-							"unregister": site.LoginRequired(whmux.ExactPath(
-								whmux.RequireMethod("POST",
-									http.HandlerFunc(site.Unregister)))),
-							"auth": oauth})))))))
+		whcache.Register(
+			whsess.HandlerWithStore(whsess.NewCookieStore(cookieSecret),
+				whfatal.Catch(
+					whmux.Dir{
+						"":      whmux.Exact(rend.Simple("index")),
+						"event": http.HandlerFunc(site.Event),
+						"settings": site.LoginRequired(whmux.Exact(
+							http.HandlerFunc(site.Settings))),
+						"register": site.LoginRequired(whmux.ExactPath(
+							whmux.RequireMethod("POST",
+								http.HandlerFunc(site.Register)))),
+						"unregister": site.LoginRequired(whmux.ExactPath(
+							whmux.RequireMethod("POST",
+								http.HandlerFunc(site.Unregister)))),
+						"auth": oauth})))))
 }
