@@ -7,7 +7,19 @@ var _ = T.MustParse(`{{template "header" .}}
 
 <ul>
 {{range .Values.Calendars}}
-<li>{{.Id}}: {{.Summary}} ({{.SummaryOverride}}) - {{.Description}}</li>
+<li>{{.Id}}: {{.Summary}} ({{.SummaryOverride}}) - {{.Description}}
+{{if .Enabled}}
+<form action="/unregister">
+<input type="hidden" name="cal" value="{{.Id}}">
+<input type="submit" value="Unregister">
+</form>
+{{else}}
+<form action="/register">
+<input type="hidden" name="cal" value="{{.Id}}">
+<input type="submit" value="Register">
+</form>
+{{end}}
+</li>
 {{end}}
 </ul>
 

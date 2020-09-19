@@ -9,11 +9,14 @@ import (
 	"os"
 
 	"github.com/jtolio/autoreject/views"
+	"github.com/kr/pretty"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
 	goauth2 "google.golang.org/api/oauth2/v2"
 	"gopkg.in/go-webhelp/whoauth2.v1"
+	"gopkg.in/webhelp.v1"
+	"gopkg.in/webhelp.v1/whcache"
 	"gopkg.in/webhelp.v1/whcompat"
 	"gopkg.in/webhelp.v1/whfatal"
 	"gopkg.in/webhelp.v1/whlog"
@@ -28,6 +31,10 @@ var (
 	oauthId      = "id"
 	oauthSecret  = "secret"
 	gcpProjectId = "gcp-project"
+
+	OAuth2Token  = webhelp.GenSym()
+	OAuth2Client = webhelp.GenSym()
+	UserId       = webhelp.GenSym()
 )
 
 func listenAddr() string {
@@ -47,22 +54,36 @@ func idGen() string {
 }
 
 type Site struct {
-	r *views.Renderer
+	r  *views.Renderer
+	db *DB
 }
 
-func (s *Site) Token(ctx context.Context) *oauth2.Token {
-	t, err := s.r.Provider.Token(ctx)
+func (s *Site) OAuth2Token(ctx context.Context) *oauth2.Token {
+	if tok, ok := whcache.Get(ctx, OAuth2Token).(*oauth2.Token); ok {
+		return tok
+	}
+	tok, err := s.r.Provider.Token(ctx)
 	if err != nil {
 		whfatal.Error(err)
 	}
-	return t
+	whcache.Set(ctx, OAuth2Token, tok)
+	return tok
 }
 
 func (s *Site) OAuth2Client(ctx context.Context) *http.Client {
-	return s.r.Provider.Provider().Config.Client(ctx, s.Token(ctx))
+	if cli, ok := whcache.Get(ctx, OAuth2Client).(*http.Client); ok {
+		return cli
+	}
+	cli := s.r.Provider.Provider().Config.Client(ctx, s.OAuth2Token(ctx))
+	whcache.Set(ctx, OAuth2Client, cli)
+	return cli
 }
 
 func (s *Site) UserId(ctx context.Context) string {
+	if id, ok := whcache.Get(ctx, UserId).(string); ok {
+		return id
+	}
+
 	svc, err := goauth2.New(s.OAuth2Client(ctx))
 	if err != nil {
 		whfatal.Error(err)
@@ -74,6 +95,7 @@ func (s *Site) UserId(ctx context.Context) string {
 	if len(ti.UserId) == 0 {
 		whfatal.Error(fmt.Errorf("invalid user id"))
 	}
+	whcache.Set(ctx, UserId, ti.UserId)
 	return ti.UserId
 }
 
@@ -84,7 +106,12 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 		whfatal.Error(err)
 	}
 
-	var calendars []*calendar.CalendarListEntry
+	type calendarData struct {
+		*calendar.CalendarListEntry
+		Enabled bool
+	}
+
+	var calendars []calendarData
 	err = srv.CalendarList.List().Context(ctx).Pages(ctx,
 		func(l *calendar.CalendarList) error {
 			for _, item := range l.Items {
@@ -96,7 +123,16 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 				if item.Deleted || item.Hidden {
 					continue
 				}
-				calendars = append(calendars, item)
+
+				channels, err := s.db.GetChannels(ctx, s.UserId(ctx), item.Id)
+				if err != nil {
+					return err
+				}
+
+				calendars = append(calendars, calendarData{
+					CalendarListEntry: item,
+					Enabled:           len(channels) > 0,
+				})
 			}
 			return nil
 		})
@@ -109,6 +145,10 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
+	whlog.Default("event: %s", pretty.Sprint(r))
+}
+
 func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
 	srv, err := calendar.New(s.OAuth2Client(ctx))
@@ -116,21 +156,71 @@ func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
 		whfatal.Error(err)
 	}
 
-	_ = &calendar.Channel{
+	chanId := idGen()
+	calId := r.FormValue("cal")
+
+	channel, err := srv.Events.Watch(calId, &calendar.Channel{
 		Address: baseURL + "/event",
-		Id:      idGen(),
+		Id:      chanId,
 		Type:    "web_hook",
+	}).Context(ctx).Do()
+	if err != nil {
+		whfatal.Error(err)
 	}
-	_ = srv
+
+	err = s.db.AddChannel(ctx, s.UserId(ctx), chanId, calId, channel.ResourceId)
+	if err != nil {
+		whfatal.Error(err)
+	}
 
 	whfatal.Redirect("/settings")
 }
 
 func (s *Site) Unregister(w http.ResponseWriter, r *http.Request) {
+	ctx := whcompat.Context(r)
+	channels, err := s.db.GetChannels(ctx, s.UserId(ctx), r.FormValue("cal"))
+	if err != nil {
+		whfatal.Error(err)
+	}
+
+	srv, err := calendar.New(s.OAuth2Client(ctx))
+	if err != nil {
+		whfatal.Error(err)
+	}
+
+	for _, channel := range channels {
+		err = srv.Channels.Stop(&calendar.Channel{
+			Id:         channel.ChannelId,
+			ResourceId: channel.ResourceId,
+		}).Context(ctx).Do()
+		if err != nil {
+			whfatal.Error(err)
+		}
+		err = s.db.RemoveChannel(ctx, s.UserId(ctx), channel.ChannelId)
+		if err != nil {
+			whfatal.Error(err)
+		}
+	}
+
 	whfatal.Redirect("/settings")
 }
 
+func (s *Site) LoginRequired(h http.Handler) http.Handler {
+	return s.r.Provider.LoginRequired(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			ctx := whcompat.Context(r)
+
+			err := s.db.SetUserOAuth2Token(ctx, s.UserId(ctx), s.OAuth2Token(ctx))
+			if err != nil {
+				whfatal.Error(err)
+			}
+
+			h.ServeHTTP(w, r)
+		}))
+}
+
 func main() {
+	ctx := context.Background()
 	oauth := whoauth2.NewProviderHandler(
 		whoauth2.Google(whoauth2.Config(oauth2.Config{
 			ClientID:     oauthId,
@@ -145,20 +235,27 @@ func main() {
 		})), "oauth-google", "/auth", whoauth2.RedirectURLs{})
 	oauth.RequestOfflineTokens()
 	rend := views.NewRenderer(oauth)
-	site := &Site{r: rend}
+	db, err := NewDB(ctx, gcpProjectId)
+	if err != nil {
+		panic(err)
+	}
+	site := &Site{r: rend, db: db}
 
 	panic(whlog.ListenAndServe(listenAddr(),
-		whlog.LogRequests(whlog.Default,
-			whlog.LogResponses(whlog.Default,
+		whlog.LogRequests(whlog.Default, whlog.LogResponses(whlog.Default,
+			whcache.Register(
 				whsess.HandlerWithStore(whsess.NewCookieStore(cookieSecret),
 					whfatal.Catch(
 						whmux.Dir{
-							"": whmux.Exact(rend.Simple("index")),
-							"settings": oauth.LoginRequired(whmux.Exact(
+							"":      whmux.Exact(rend.Simple("index")),
+							"event": http.HandlerFunc(site.Event),
+							"settings": site.LoginRequired(whmux.Exact(
 								http.HandlerFunc(site.Settings))),
-							"register": oauth.LoginRequired(whmux.Exact(
-								http.HandlerFunc(site.Register))),
-							"unregister": oauth.LoginRequired(whmux.Exact(
-								http.HandlerFunc(site.Unregister))),
-							"auth": oauth}))))))
+							"register": site.LoginRequired(whmux.ExactPath(
+								whmux.RequireMethod("POST",
+									http.HandlerFunc(site.Register)))),
+							"unregister": site.LoginRequired(whmux.ExactPath(
+								whmux.RequireMethod("POST",
+									http.HandlerFunc(site.Unregister)))),
+							"auth": oauth})))))))
 }
