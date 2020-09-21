@@ -24,8 +24,8 @@ type DSChannel struct {
 }
 
 var DefaultConfigValues = map[string]string{
-	"autoreject_name":  "(Autoreject)",
-	"autoreject_reply": "Unavailable",
+	"autoreject_name":  "(autoreject)",
+	"autoreject_reply": "Automatic decline - unavailable. Please ask about scheduling during this block of time.",
 }
 
 type DSConfigString struct {

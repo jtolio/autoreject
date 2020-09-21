@@ -18,7 +18,7 @@ during that time will be rejected with the provided "Autoreject reply."</p>
 <p><input type="submit" value="Update"></p>
 </form>
 
-<p>You can register with the provided calendars below:</p>
+<p>You can register with the provided calendars individually below:</p>
 
 <ul>
 {{range .Values.Calendars}}
