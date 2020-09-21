@@ -98,6 +98,21 @@ func (s *Site) UserId(ctx context.Context) string {
 	return ti.UserId
 }
 
+func (s *Site) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := whcompat.Context(r)
+
+	for _, field := range []string{"autoreject_name", "autoreject_reply"} {
+		if val := r.FormValue(field); val != "" {
+			err := s.db.SetStringSetting(ctx, s.UserId(ctx), field, val)
+			if err != nil {
+				whfatal.Error(err)
+			}
+		}
+	}
+
+	whfatal.Redirect("/settings")
+}
+
 func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
 	srv, err := calendar.New(s.OAuth2Client(ctx))
@@ -139,9 +154,19 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 		whfatal.Error(err)
 	}
 
-	s.r.Render(w, r, "settings", map[string]interface{}{
+	values := map[string]interface{}{
 		"Calendars": calendars,
-	})
+	}
+
+	for _, field := range []string{"autoreject_name", "autoreject_reply"} {
+		val, err := s.db.GetStringSetting(ctx, s.UserId(ctx), field)
+		if err != nil {
+			whfatal.Error(err)
+		}
+		values[field] = val
+	}
+
+	s.r.Render(w, r, "settings", values)
 }
 
 func (s *Site) LoginRequired(h http.Handler) http.Handler {
@@ -187,8 +212,11 @@ func main() {
 					whmux.Dir{
 						"":      whmux.Exact(rend.Simple("index")),
 						"event": http.HandlerFunc(site.Event),
-						"settings": site.LoginRequired(whmux.Exact(
-							http.HandlerFunc(site.Settings))),
+						"settings": site.LoginRequired(whmux.ExactPath(
+							whmux.Method{
+								"GET":  http.HandlerFunc(site.Settings),
+								"POST": http.HandlerFunc(site.UpdateSettings),
+							})),
 						"register": site.LoginRequired(whmux.ExactPath(
 							whmux.RequireMethod("POST",
 								http.HandlerFunc(site.Register)))),
