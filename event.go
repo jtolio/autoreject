@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"google.golang.org/api/calendar/v3"
@@ -28,6 +29,7 @@ func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		whfatal.Error(err)
 	}
+	autorejectName = strings.ToLower(strings.TrimSpace(autorejectName))
 
 	autorejectReply, err := s.db.GetStringSetting(ctx, channel.UserId,
 		"autoreject_reply")
@@ -56,7 +58,15 @@ func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
 	}
 
 	nextSyncToken, err := RejectBadInvites(
-		ctx, srv, channel.CalId, syncToken, autorejectName, autorejectReply,
+		ctx, srv, channel.CalId, syncToken, func(e *calendar.Event) bool {
+			if !strings.Contains(strings.ToLower(e.Summary), autorejectName) {
+				return false
+			}
+			if len(e.Attendees) != 0 {
+				return false
+			}
+			return true
+		}, autorejectReply,
 		oldestCreation)
 	if err != nil {
 		whfatal.Error(err)

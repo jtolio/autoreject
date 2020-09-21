@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"google.golang.org/api/calendar/v3"
@@ -33,10 +32,9 @@ func parseTime(eventTime *calendar.EventDateTime, isStart bool) (time.Time, erro
 }
 
 func RejectBadInvites(ctx context.Context, srv *calendar.Service,
-	calId, lastSyncToken, autorejectSummary, autorejectComment string,
-	oldestCreation time.Time) (
+	calId, lastSyncToken string, autorejectMatcher func(e *calendar.Event) bool,
+	autorejectComment string, oldestCreation time.Time) (
 	nextSyncToken string, err error) {
-	autorejectSummary = strings.ToLower(strings.TrimSpace(autorejectSummary))
 	callback := func(e *calendar.Events) error {
 		nextSyncToken = e.NextSyncToken
 		for _, item := range e.Items {
@@ -76,10 +74,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 				Pages(ctx,
 					func(e *calendar.Events) error {
 						for _, conflict := range e.Items {
-							if strings.ToLower(strings.TrimSpace(conflict.Summary)) != autorejectSummary {
-								continue
-							}
-							if len(conflict.Attendees) != 0 {
+							if !autorejectMatcher(conflict) {
 								continue
 							}
 							conflictStart, err := parseTime(conflict.Start, true)
@@ -129,7 +124,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 	if err != nil {
 		if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusGone {
 			return RejectBadInvites(
-				ctx, srv, calId, "", autorejectSummary, autorejectComment, oldestCreation)
+				ctx, srv, calId, "", autorejectMatcher, autorejectComment, oldestCreation)
 		}
 		return "", err
 	}

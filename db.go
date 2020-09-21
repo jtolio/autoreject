@@ -24,7 +24,7 @@ type DSChannel struct {
 }
 
 var DefaultConfigValues = map[string]string{
-	"autoreject_name":  "Autoreject",
+	"autoreject_name":  "(Autoreject)",
 	"autoreject_reply": "Unavailable",
 }
 
