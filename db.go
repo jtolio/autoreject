@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
 	"cloud.google.com/go/datastore"
 	"golang.org/x/oauth2"
@@ -12,24 +14,35 @@ import (
 // User keys should be NameKey("User", userId, nil)
 
 type DSChannel struct {
-	// Datastore Key should be NameKey("Channel", channelId, userKey)
+	// Datastore Key should be NameKey("Channel", channelId, nil)
+	UserId     string
 	CalId      string
 	ResourceId string
+	Expiration time.Time
 
-	// TODO: Expiration
 	// TODO: cron job to unexpire
 }
 
-type DSOAuth2Token struct {
-	// Datastore Key should be NameKey("OAuth2Token", "oauth2_token",  userKey)
-	OAuth2Token []byte `datastore:",noindex"`
+var DefaultConfigValues = map[string]string{
+	"autoreject_name":  "Autoreject",
+	"autoreject_reply": "Unavailable",
 }
 
-type DSConflictName struct {
-	// Datastore Key should be either
-	// IDKey("ConflictName", id, userKey)
-	// IncompleteKey("ConflictName", userKey)
-	Name string
+type DSConfigString struct {
+	// Datastore Key should be NameKey("ConfigString", name, userKey)
+	Value string `datastore:",noindex"`
+	// Settings:
+	// * autoreject_name
+	// * autoreject_reply
+	// * syncstart-<calid>
+	// * synctoken-<calid>
+}
+
+type DSConfigBytes struct {
+	// Datastore Key should be NameKey("ConfigBytes", name, userKey)
+	Value []byte `datastore:",noindex"`
+	// Settings:
+	// * oauth2_token
 }
 
 type DB struct {
@@ -48,12 +61,16 @@ func (d *DB) userKey(userId string) *datastore.Key {
 	return datastore.NameKey("User", userId, nil)
 }
 
-func (d *DB) oauth2TokenKey(userId string) *datastore.Key {
-	return datastore.NameKey("OAuth2Token", "oauth2_token", d.userKey(userId))
+func (d *DB) configBytesKey(userId, name string) *datastore.Key {
+	return datastore.NameKey("ConfigBytes", name, d.userKey(userId))
 }
 
-func (d *DB) channelKey(userId string, channelId string) *datastore.Key {
-	return datastore.NameKey("Channel", channelId, d.userKey(userId))
+func (d *DB) configStringKey(userId, name string) *datastore.Key {
+	return datastore.NameKey("ConfigString", name, d.userKey(userId))
+}
+
+func (d *DB) channelKey(channelId string) *datastore.Key {
+	return datastore.NameKey("Channel", channelId, nil)
 }
 
 func (d *DB) SetUserOAuth2Token(ctx context.Context, userId string,
@@ -62,21 +79,21 @@ func (d *DB) SetUserOAuth2Token(ctx context.Context, userId string,
 	if err != nil {
 		return err
 	}
-	_, err = d.datastore.Put(ctx, d.oauth2TokenKey(userId), &DSOAuth2Token{
-		OAuth2Token: data,
-	})
+	_, err = d.datastore.Put(ctx,
+		d.configBytesKey(userId, "oauth2_token"),
+		&DSConfigBytes{Value: data})
 	return err
 }
 
 func (d *DB) GetUserOAuth2Token(ctx context.Context, userId string) (
 	*oauth2.Token, error) {
-	var val DSOAuth2Token
-	err := d.datastore.Get(ctx, d.oauth2TokenKey(userId), &val)
+	var val DSConfigBytes
+	err := d.datastore.Get(ctx, d.configBytesKey(userId, "oauth2_token"), &val)
 	if err != nil {
 		return nil, err
 	}
 	var tok oauth2.Token
-	err = json.Unmarshal(val.OAuth2Token, &tok)
+	err = json.Unmarshal(val.Value, &tok)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +108,7 @@ type StoppableChannel struct {
 func (d *DB) GetChannels(ctx context.Context, userId string, calId string) (
 	[]StoppableChannel, error) {
 	it := d.datastore.Run(ctx, datastore.NewQuery("Channel").
-		Ancestor(d.userKey(userId)).Filter("CalId =", calId))
+		Filter("UserId =", userId).Filter("CalId =", calId))
 	var chans []StoppableChannel
 	for {
 		var ch DSChannel
@@ -109,15 +126,39 @@ func (d *DB) GetChannels(ctx context.Context, userId string, calId string) (
 	}
 }
 
-func (d *DB) AddChannel(ctx context.Context, userId, chanId, calId, resourceId string) error {
-	_, err := d.datastore.Put(ctx, d.channelKey(userId, chanId), &DSChannel{
+func (d *DB) GetChannel(ctx context.Context, chanId string) (*DSChannel, error) {
+	var val DSChannel
+	return &val, d.datastore.Get(ctx, d.channelKey(chanId), &val)
+}
+
+func (d *DB) AddChannel(ctx context.Context, userId, chanId, calId, resourceId string, expiration time.Time) error {
+	_, err := d.datastore.Put(ctx, d.channelKey(chanId), &DSChannel{
+		UserId:     userId,
 		CalId:      calId,
 		ResourceId: resourceId,
+		Expiration: expiration,
 	})
 	return err
 }
 
-func (d *DB) RemoveChannel(ctx context.Context, userId, chanId string) error {
-	err := d.datastore.Delete(ctx, d.channelKey(userId, chanId))
+func (d *DB) RemoveChannel(ctx context.Context, chanId string) error {
+	err := d.datastore.Delete(ctx, d.channelKey(chanId))
+	return err
+}
+
+func (d *DB) GetStringSetting(ctx context.Context, userId, name string) (string, error) {
+	var val DSConfigString
+	err := d.datastore.Get(ctx, d.configStringKey(userId, name), &val)
+	if err != nil {
+		if errors.Is(err, datastore.ErrNoSuchEntity) {
+			return DefaultConfigValues[name], nil
+		}
+		return "", err
+	}
+	return val.Value, nil
+}
+
+func (d *DB) SetStringSetting(ctx context.Context, userId, name, value string) error {
+	_, err := d.datastore.Put(ctx, d.configStringKey(userId, name), &DSConfigString{Value: value})
 	return err
 }

@@ -36,7 +36,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 	calId, lastSyncToken, autorejectSummary, autorejectComment string,
 	oldestCreation time.Time) (
 	nextSyncToken string, err error) {
-	autorejectSummary = strings.TrimSpace(autorejectSummary)
+	autorejectSummary = strings.ToLower(strings.TrimSpace(autorejectSummary))
 	callback := func(e *calendar.Events) error {
 		nextSyncToken = e.NextSyncToken
 		for _, item := range e.Items {
@@ -76,7 +76,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 				Pages(ctx,
 					func(e *calendar.Events) error {
 						for _, conflict := range e.Items {
-							if strings.TrimSpace(conflict.Summary) != autorejectSummary {
+							if strings.ToLower(strings.TrimSpace(conflict.Summary)) != autorejectSummary {
 								continue
 							}
 							if len(conflict.Attendees) != 0 {

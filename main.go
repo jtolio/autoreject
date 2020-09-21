@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 
@@ -143,70 +142,6 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 	s.r.Render(w, r, "settings", map[string]interface{}{
 		"Calendars": calendars,
 	})
-}
-
-func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
-	data, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		whfatal.Error(err)
-	}
-	whlog.Default("event post: %q", string(data))
-}
-
-func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
-	ctx := whcompat.Context(r)
-	srv, err := calendar.New(s.OAuth2Client(ctx))
-	if err != nil {
-		whfatal.Error(err)
-	}
-
-	chanId := idGen()
-	calId := r.FormValue("cal")
-
-	channel, err := srv.Events.Watch(calId, &calendar.Channel{
-		Address: baseURL + "/event",
-		Id:      chanId,
-		Type:    "web_hook",
-	}).Context(ctx).Do()
-	if err != nil {
-		whfatal.Error(err)
-	}
-
-	err = s.db.AddChannel(ctx, s.UserId(ctx), chanId, calId, channel.ResourceId)
-	if err != nil {
-		whfatal.Error(err)
-	}
-
-	whfatal.Redirect("/settings")
-}
-
-func (s *Site) Unregister(w http.ResponseWriter, r *http.Request) {
-	ctx := whcompat.Context(r)
-	channels, err := s.db.GetChannels(ctx, s.UserId(ctx), r.FormValue("cal"))
-	if err != nil {
-		whfatal.Error(err)
-	}
-
-	srv, err := calendar.New(s.OAuth2Client(ctx))
-	if err != nil {
-		whfatal.Error(err)
-	}
-
-	for _, channel := range channels {
-		err = srv.Channels.Stop(&calendar.Channel{
-			Id:         channel.ChannelId,
-			ResourceId: channel.ResourceId,
-		}).Context(ctx).Do()
-		if err != nil {
-			whfatal.Error(err)
-		}
-		err = s.db.RemoveChannel(ctx, s.UserId(ctx), channel.ChannelId)
-		if err != nil {
-			whfatal.Error(err)
-		}
-	}
-
-	whfatal.Redirect("/settings")
 }
 
 func (s *Site) LoginRequired(h http.Handler) http.Handler {
