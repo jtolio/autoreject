@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 
 	"github.com/jtolio/autoreject/views"
 	"golang.org/x/oauth2"
@@ -125,25 +126,16 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 		Enabled bool
 	}
 
-	var calendars []calendarData
-	err = srv.CalendarList.List().Context(ctx).Pages(ctx,
+	var calendars []*calendarData
+	err = srv.CalendarList.List().MinAccessRole("writer").Pages(ctx,
 		func(l *calendar.CalendarList) error {
 			for _, item := range l.Items {
-				switch item.AccessRole {
-				case "writer", "owner":
-				default:
-					continue
-				}
-				if item.Deleted || item.Hidden {
-					continue
-				}
-
 				channels, err := s.db.GetChannels(ctx, s.UserId(ctx), item.Id)
 				if err != nil {
 					return err
 				}
 
-				calendars = append(calendars, calendarData{
+				calendars = append(calendars, &calendarData{
 					CalendarListEntry: item,
 					Enabled:           len(channels) > 0,
 				})
@@ -153,6 +145,22 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		whfatal.Error(err)
 	}
+
+	sort.Slice(calendars, func(i, j int) bool {
+		if calendars[i].Primary && !calendars[j].Primary {
+			return true
+		}
+		if !calendars[i].Primary && calendars[j].Primary {
+			return false
+		}
+		if calendars[i].AccessRole == "owner" && calendars[j].AccessRole != "owner" {
+			return true
+		}
+		if calendars[i].AccessRole != "owner" && calendars[j].AccessRole == "owner" {
+			return false
+		}
+		return calendars[i].Id < calendars[j].Id
+	})
 
 	values := map[string]interface{}{
 		"Calendars": calendars,
