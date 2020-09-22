@@ -147,6 +147,12 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sort.Slice(calendars, func(i, j int) bool {
+		if calendars[i].Enabled && !calendars[j].Enabled {
+			return true
+		}
+		if !calendars[i].Enabled && calendars[j].Enabled {
+			return false
+		}
 		if calendars[i].Primary && !calendars[j].Primary {
 			return true
 		}
