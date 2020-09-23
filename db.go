@@ -162,3 +162,22 @@ func (d *DB) SetStringSetting(ctx context.Context, userId, name, value string) e
 	_, err := d.datastore.Put(ctx, d.configStringKey(userId, name), &DSConfigString{Value: value})
 	return err
 }
+
+func (d *DB) AllChannels(ctx context.Context,
+	cb func(context.Context, *datastore.Key, *DSChannel) error) error {
+	it := d.datastore.Run(ctx, datastore.NewQuery("Channel"))
+	for {
+		var ch DSChannel
+		key, err := it.Next(&ch)
+		if err == iterator.Done {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		err = cb(ctx, key, &ch)
+		if err != nil {
+			return err
+		}
+	}
+}

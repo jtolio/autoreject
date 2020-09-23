@@ -1,0 +1,4 @@
+cron:
+- description: "expiring channels"
+  url: /cron
+  schedule: every 24 hours

@@ -226,6 +226,7 @@ func main() {
 					whmux.Dir{
 						"":      whmux.Exact(rend.Simple("index")),
 						"event": http.HandlerFunc(site.Event),
+						"cron":  http.HandlerFunc(site.Cron),
 						"settings": site.LoginRequired(whmux.ExactPath(
 							whmux.Method{
 								"GET":  http.HandlerFunc(site.Settings),

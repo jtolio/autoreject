@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -9,6 +10,21 @@ import (
 	"gopkg.in/webhelp.v1/whfatal"
 )
 
+func (s *Site) addChannel(ctx context.Context, srv *calendar.Service,
+	calId, userId string) error {
+	chanId := idGen()
+	channel, err := srv.Events.Watch(calId, &calendar.Channel{
+		Address: baseURL + "/event",
+		Id:      chanId,
+		Type:    "web_hook",
+	}).Context(ctx).Do()
+	if err != nil {
+		return err
+	}
+	return s.db.AddChannel(ctx, userId, chanId, calId, channel.ResourceId,
+		time.Unix(0, channel.Expiration*int64(time.Millisecond)))
+}
+
 func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
 	srv, err := calendar.New(s.OAuth2Client(ctx))
@@ -16,20 +32,9 @@ func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
 		whfatal.Error(err)
 	}
 
-	chanId := idGen()
 	calId := r.FormValue("cal")
 
-	channel, err := srv.Events.Watch(calId, &calendar.Channel{
-		Address: baseURL + "/event",
-		Id:      chanId,
-		Type:    "web_hook",
-	}).Context(ctx).Do()
-	if err != nil {
-		whfatal.Error(err)
-	}
-
-	err = s.db.AddChannel(ctx, s.UserId(ctx), chanId, calId, channel.ResourceId,
-		time.Unix(0, channel.Expiration*int64(time.Millisecond)))
+	err = s.addChannel(ctx, srv, calId, s.UserId(ctx))
 	if err != nil {
 		whfatal.Error(err)
 	}
@@ -41,6 +46,18 @@ func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	whfatal.Redirect("/settings")
+}
+
+func (s *Site) removeChannel(ctx context.Context, srv *calendar.Service,
+	chanId, resourceId string) error {
+	err := srv.Channels.Stop(&calendar.Channel{
+		Id:         chanId,
+		ResourceId: resourceId,
+	}).Context(ctx).Do()
+	if err != nil {
+		return err
+	}
+	return s.db.RemoveChannel(ctx, chanId)
 }
 
 func (s *Site) Unregister(w http.ResponseWriter, r *http.Request) {
@@ -56,14 +73,7 @@ func (s *Site) Unregister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, channel := range channels {
-		err = srv.Channels.Stop(&calendar.Channel{
-			Id:         channel.ChannelId,
-			ResourceId: channel.ResourceId,
-		}).Context(ctx).Do()
-		if err != nil {
-			whfatal.Error(err)
-		}
-		err = s.db.RemoveChannel(ctx, channel.ChannelId)
+		err = s.removeChannel(ctx, srv, channel.ChannelId, channel.ResourceId)
 		if err != nil {
 			whfatal.Error(err)
 		}

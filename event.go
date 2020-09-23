@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -10,51 +11,44 @@ import (
 	"gopkg.in/webhelp.v1/whfatal"
 )
 
-func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
-	ctx := whcompat.Context(r)
-	chanId := r.Header.Get("X-Goog-Channel-ID")
-	channel, err := s.db.GetChannel(ctx, chanId)
-	if err != nil {
-		whfatal.Error(err)
-	}
-
+func (s *Site) sync(ctx context.Context, chanId string, channel *DSChannel) error {
 	syncToken, err := s.db.GetStringSetting(ctx, channel.UserId,
 		"synctoken-"+channel.CalId)
 	if err != nil {
-		whfatal.Error(err)
+		return err
 	}
 
 	autorejectName, err := s.db.GetStringSetting(ctx, channel.UserId,
 		"autoreject_name")
 	if err != nil {
-		whfatal.Error(err)
+		return err
 	}
 	autorejectName = strings.ToLower(strings.TrimSpace(autorejectName))
 
 	autorejectReply, err := s.db.GetStringSetting(ctx, channel.UserId,
 		"autoreject_reply")
 	if err != nil {
-		whfatal.Error(err)
+		return err
 	}
 
 	oldestCreationStr, err := s.db.GetStringSetting(ctx, channel.UserId,
 		"syncstart-"+channel.CalId)
 	if err != nil {
-		whfatal.Error(err)
+		return err
 	}
 	oldestCreation, err := time.Parse(time.RFC3339, oldestCreationStr)
 	if err != nil {
-		whfatal.Error(err)
+		return err
 	}
 
 	tok, err := s.db.GetUserOAuth2Token(ctx, channel.UserId)
 	if err != nil {
-		whfatal.Error(err)
+		return err
 	}
 
 	srv, err := calendar.New(s.r.Provider.Provider().Config.Client(ctx, tok))
 	if err != nil {
-		whfatal.Error(err)
+		return err
 	}
 
 	nextSyncToken, err := RejectBadInvites(
@@ -69,11 +63,28 @@ func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
 		}, autorejectReply,
 		oldestCreation)
 	if err != nil {
-		whfatal.Error(err)
+		return err
 	}
 
 	err = s.db.SetStringSetting(ctx, channel.UserId,
 		"synctoken-"+channel.CalId, nextSyncToken)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Site) Event(w http.ResponseWriter, r *http.Request) {
+	ctx := whcompat.Context(r)
+	chanId := r.Header.Get("X-Goog-Channel-ID")
+
+	channel, err := s.db.GetChannel(ctx, chanId)
+	if err != nil {
+		whfatal.Error(err)
+	}
+
+	err = s.sync(ctx, chanId, channel)
 	if err != nil {
 		whfatal.Error(err)
 	}
