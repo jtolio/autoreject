@@ -184,13 +184,16 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Site) LoginRequired(h http.Handler) http.Handler {
-	return s.r.Provider.LoginRequiredForcePrompt(http.HandlerFunc(
+	return s.r.Provider.LoginRequired(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			ctx := whcompat.Context(r)
 
-			err := s.db.SetUserOAuth2Token(ctx, s.UserId(ctx), s.OAuth2Token(ctx))
-			if err != nil {
-				whfatal.Error(err)
+			tok := s.OAuth2Token(ctx)
+			if tok.RefreshToken != "" {
+				err := s.db.SetUserOAuth2Token(ctx, s.UserId(ctx), tok)
+				if err != nil {
+					whfatal.Error(err)
+				}
 			}
 
 			h.ServeHTTP(w, r)

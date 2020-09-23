@@ -45,7 +45,7 @@ func (rend *Renderer) Render(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Content-Type", "text/html")
 	T.Render(w, r, template, &Page{
 		LoggedIn:  t != nil,
-		LoginURL:  rend.Provider.LoginURL(r.RequestURI, true),
+		LoginURL:  rend.Provider.LoginURL(r.RequestURI, false),
 		LogoutURL: rend.Provider.LogoutURL("/"),
 		Req:       r,
 		Ctx:       ctx,
