@@ -375,8 +375,8 @@ google.golang.org/protobuf v1.25.0/go.mod h1:9JNX74DMeImyA3h4bdi1ymwjUzf21/xIlba
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/errgo.v2 v2.1.0/go.mod h1:hNsd1EY+bozCKY1Ytp96fpM3vjJbqLJn88ws8XvfDNI=
-gopkg.in/go-webhelp/whoauth2.v1 v1.0.0-20200923044311-508272893cb3 h1:Nkq6LCsZoMeL3QjM4OyZHbW++v9PbMqoMbJxSVHx4qc=
-gopkg.in/go-webhelp/whoauth2.v1 v1.0.0-20200923044311-508272893cb3/go.mod h1:8UAo1ofAirRsY9hQ13Y5buoNfTSFoIunUR6ki6IDCpQ=
+gopkg.in/go-webhelp/whoauth2.v1 v1.0.0-20200923055940-053b2b05c515 h1:yLDhzwTKzLxIJdnkbhxov+P1cs6qzoqMM9KedCormqE=
+gopkg.in/go-webhelp/whoauth2.v1 v1.0.0-20200923055940-053b2b05c515/go.mod h1:8UAo1ofAirRsY9hQ13Y5buoNfTSFoIunUR6ki6IDCpQ=
 gopkg.in/webhelp.v1 v1.0.0-20170530084242-3f30213e4c49 h1:IMjMW+dT8TqS+5UfHsjmbmWioEWzfAX6QNkJnHt5lJQ=
 gopkg.in/webhelp.v1 v1.0.0-20170530084242-3f30213e4c49/go.mod h1:dz6KmQ7BSYSBB5EwYLt6MYe7E4VzokH2elTDRfANReg=
 gopkg.in/yaml.v2 v2.2.2/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=

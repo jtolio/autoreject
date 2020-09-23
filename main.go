@@ -184,7 +184,7 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Site) LoginRequired(h http.Handler) http.Handler {
-	return s.r.Provider.LoginRequired(http.HandlerFunc(
+	return s.r.Provider.LoginRequiredForcePrompt(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			ctx := whcompat.Context(r)
 
