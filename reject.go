@@ -99,7 +99,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 				return err
 			}
 			if conflictFound {
-				_, err = srv.Events.Update(calId, item.Id, &calendar.Event{
+				_, err = srv.Events.Patch(calId, item.Id, &calendar.Event{
 					Id:    item.Id,
 					Start: item.Start,
 					End:   item.End,
