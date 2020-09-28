@@ -103,11 +103,11 @@ func (s *Site) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
 
 	for _, field := range []string{"autoreject_name", "autoreject_reply"} {
-		if val := r.FormValue(field); val != "" {
-			err := s.db.SetStringSetting(ctx, s.UserId(ctx), field, val)
-			if err != nil {
-				whfatal.Error(err)
-			}
+		val := r.FormValue(field)
+
+		err := s.db.SetStringSetting(ctx, s.UserId(ctx), field, val)
+		if err != nil {
+			whfatal.Error(err)
 		}
 	}
 
