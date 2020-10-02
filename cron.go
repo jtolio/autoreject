@@ -27,7 +27,7 @@ func (s *Site) Cron(w http.ResponseWriter, r *http.Request) {
 			}
 			srv, err := calendar.New(s.r.Provider.Provider().Config.Client(ctx, tok))
 			if err != nil {
-				return err
+				return Err.Wrap(err)
 			}
 
 			err = s.addChannel(ctx, srv, ch.CalId, ch.UserId)

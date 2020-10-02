@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/jtolio/autoreject/views"
+	"github.com/spacemonkeygo/errors"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
@@ -35,6 +36,8 @@ var (
 	OAuth2Token  = webhelp.GenSym()
 	OAuth2Client = webhelp.GenSym()
 	UserId       = webhelp.GenSym()
+
+	Err = errors.NewClass("error")
 )
 
 func listenAddr() string {
@@ -48,7 +51,7 @@ func idGen() string {
 	var data [32]byte
 	_, err := rand.Read(data[:])
 	if err != nil {
-		whfatal.Error(err)
+		whfatal.Error(Err.Wrap(err))
 	}
 	return hex.EncodeToString(data[:])
 }
@@ -64,7 +67,7 @@ func (s *Site) OAuth2Token(ctx context.Context) *oauth2.Token {
 	}
 	tok, err := s.r.Provider.Token(ctx)
 	if err != nil {
-		whfatal.Error(err)
+		whfatal.Error(Err.Wrap(err))
 	}
 	whcache.Set(ctx, OAuth2Token, tok)
 	return tok
@@ -86,11 +89,11 @@ func (s *Site) UserId(ctx context.Context) string {
 
 	svc, err := goauth2.New(s.OAuth2Client(ctx))
 	if err != nil {
-		whfatal.Error(err)
+		whfatal.Error(Err.Wrap(err))
 	}
 	ti, err := svc.Tokeninfo().Do()
 	if err != nil {
-		whfatal.Error(err)
+		whfatal.Error(Err.Wrap(err))
 	}
 	if len(ti.UserId) == 0 {
 		whfatal.Error(fmt.Errorf("invalid user id"))
@@ -118,7 +121,7 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
 	srv, err := calendar.New(s.OAuth2Client(ctx))
 	if err != nil {
-		whfatal.Error(err)
+		whfatal.Error(Err.Wrap(err))
 	}
 
 	type calendarData struct {
@@ -143,7 +146,7 @@ func (s *Site) Settings(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 	if err != nil {
-		whfatal.Error(err)
+		whfatal.Error(Err.Wrap(err))
 	}
 
 	sort.Slice(calendars, func(i, j int) bool {

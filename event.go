@@ -38,7 +38,7 @@ func (s *Site) sync(ctx context.Context, chanId string, channel *DSChannel) erro
 	}
 	oldestCreation, err := time.Parse(time.RFC3339, oldestCreationStr)
 	if err != nil {
-		return err
+		return Err.Wrap(err)
 	}
 
 	tok, err := s.db.GetUserOAuth2Token(ctx, channel.UserId)
@@ -48,7 +48,7 @@ func (s *Site) sync(ctx context.Context, chanId string, channel *DSChannel) erro
 
 	srv, err := calendar.New(s.r.Provider.Provider().Config.Client(ctx, tok))
 	if err != nil {
-		return err
+		return Err.Wrap(err)
 	}
 
 	nextSyncToken, err := RejectBadInvites(

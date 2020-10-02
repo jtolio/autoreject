@@ -19,7 +19,7 @@ func (s *Site) addChannel(ctx context.Context, srv *calendar.Service,
 		Type:    "web_hook",
 	}).Context(ctx).Do()
 	if err != nil {
-		return err
+		return Err.Wrap(err)
 	}
 	return s.db.AddChannel(ctx, userId, chanId, calId, channel.ResourceId,
 		time.Unix(0, channel.Expiration*int64(time.Millisecond)))
@@ -29,7 +29,7 @@ func (s *Site) Register(w http.ResponseWriter, r *http.Request) {
 	ctx := whcompat.Context(r)
 	srv, err := calendar.New(s.OAuth2Client(ctx))
 	if err != nil {
-		whfatal.Error(err)
+		whfatal.Error(Err.Wrap(err))
 	}
 
 	calId := r.FormValue("cal")
@@ -55,7 +55,7 @@ func (s *Site) removeChannel(ctx context.Context, srv *calendar.Service,
 		ResourceId: resourceId,
 	}).Context(ctx).Do()
 	if err != nil {
-		return err
+		return Err.Wrap(err)
 	}
 	return s.db.RemoveChannel(ctx, chanId)
 }
@@ -69,7 +69,7 @@ func (s *Site) Unregister(w http.ResponseWriter, r *http.Request) {
 
 	srv, err := calendar.New(s.OAuth2Client(ctx))
 	if err != nil {
-		whfatal.Error(err)
+		whfatal.Error(Err.Wrap(err))
 	}
 
 	for _, channel := range channels {

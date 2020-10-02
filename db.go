@@ -52,7 +52,7 @@ type DB struct {
 func NewDB(ctx context.Context, gcpProjectId string) (*DB, error) {
 	cli, err := datastore.NewClient(ctx, gcpProjectId)
 	if err != nil {
-		return nil, err
+		return nil, Err.Wrap(err)
 	}
 	return &DB{datastore: cli}, nil
 }
@@ -77,12 +77,12 @@ func (d *DB) SetUserOAuth2Token(ctx context.Context, userId string,
 	tok *oauth2.Token) error {
 	data, err := json.Marshal(tok)
 	if err != nil {
-		return err
+		return Err.Wrap(err)
 	}
 	_, err = d.datastore.Put(ctx,
 		d.configBytesKey(userId, "oauth2_token"),
 		&DSConfigBytes{Value: data})
-	return err
+	return Err.Wrap(err)
 }
 
 func (d *DB) GetUserOAuth2Token(ctx context.Context, userId string) (
@@ -90,12 +90,12 @@ func (d *DB) GetUserOAuth2Token(ctx context.Context, userId string) (
 	var val DSConfigBytes
 	err := d.datastore.Get(ctx, d.configBytesKey(userId, "oauth2_token"), &val)
 	if err != nil {
-		return nil, err
+		return nil, Err.Wrap(err)
 	}
 	var tok oauth2.Token
 	err = json.Unmarshal(val.Value, &tok)
 	if err != nil {
-		return nil, err
+		return nil, Err.Wrap(err)
 	}
 	return &tok, nil
 }
@@ -113,11 +113,11 @@ func (d *DB) GetChannels(ctx context.Context, userId string, calId string) (
 	for {
 		var ch DSChannel
 		key, err := it.Next(&ch)
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return chans, nil
 		}
 		if err != nil {
-			return chans, err
+			return chans, Err.Wrap(err)
 		}
 		chans = append(chans, StoppableChannel{
 			ChannelId:  key.Name,
@@ -128,7 +128,7 @@ func (d *DB) GetChannels(ctx context.Context, userId string, calId string) (
 
 func (d *DB) GetChannel(ctx context.Context, chanId string) (*DSChannel, error) {
 	var val DSChannel
-	return &val, d.datastore.Get(ctx, d.channelKey(chanId), &val)
+	return &val, Err.Wrap(d.datastore.Get(ctx, d.channelKey(chanId), &val))
 }
 
 func (d *DB) AddChannel(ctx context.Context, userId, chanId, calId, resourceId string, expiration time.Time) error {
@@ -138,12 +138,11 @@ func (d *DB) AddChannel(ctx context.Context, userId, chanId, calId, resourceId s
 		ResourceId: resourceId,
 		Expiration: expiration,
 	})
-	return err
+	return Err.Wrap(err)
 }
 
 func (d *DB) RemoveChannel(ctx context.Context, chanId string) error {
-	err := d.datastore.Delete(ctx, d.channelKey(chanId))
-	return err
+	return Err.Wrap(d.datastore.Delete(ctx, d.channelKey(chanId)))
 }
 
 func (d *DB) GetStringSetting(ctx context.Context, userId, name string) (string, error) {
@@ -153,14 +152,14 @@ func (d *DB) GetStringSetting(ctx context.Context, userId, name string) (string,
 		if errors.Is(err, datastore.ErrNoSuchEntity) {
 			return DefaultConfigValues[name], nil
 		}
-		return "", err
+		return "", Err.Wrap(err)
 	}
 	return val.Value, nil
 }
 
 func (d *DB) SetStringSetting(ctx context.Context, userId, name, value string) error {
 	_, err := d.datastore.Put(ctx, d.configStringKey(userId, name), &DSConfigString{Value: value})
-	return err
+	return Err.Wrap(err)
 }
 
 func (d *DB) AllChannels(ctx context.Context,
@@ -169,11 +168,11 @@ func (d *DB) AllChannels(ctx context.Context,
 	for {
 		var ch DSChannel
 		key, err := it.Next(&ch)
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return nil
 		}
 		if err != nil {
-			return err
+			return Err.Wrap(err)
 		}
 		err = cb(ctx, key, &ch)
 		if err != nil {

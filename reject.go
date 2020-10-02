@@ -16,19 +16,22 @@ func parseTime(eventTime *calendar.EventDateTime, isStart bool) (time.Time, erro
 		var err error
 		loc, err = time.LoadLocation(eventTime.TimeZone)
 		if err != nil {
-			return time.Time{}, err
+			return time.Time{}, Err.Wrap(err)
 		}
 	}
 	if eventTime.DateTime != "" {
-		return time.ParseInLocation(time.RFC3339, eventTime.DateTime, loc)
+		rv, err := time.ParseInLocation(time.RFC3339, eventTime.DateTime, loc)
+		return rv, Err.Wrap(err)
 	}
 	if eventTime.Date == "" {
-		return time.Time{}, fmt.Errorf("no datetime or date")
+		return time.Time{}, Err.Wrap(fmt.Errorf("no datetime or date"))
 	}
 	if isStart {
-		return time.ParseInLocation("2006-01-02T15:04:05", eventTime.Date+"T00:00:00", loc)
+		rv, err := time.ParseInLocation("2006-01-02T15:04:05", eventTime.Date+"T00:00:00", loc)
+		return rv, Err.Wrap(err)
 	}
-	return time.ParseInLocation("2006-01-02T15:04:05", eventTime.Date+"T23:59:59", loc)
+	rv, err := time.ParseInLocation("2006-01-02T15:04:05", eventTime.Date+"T23:59:59", loc)
+	return rv, Err.Wrap(err)
 }
 
 func RejectBadInvites(ctx context.Context, srv *calendar.Service,
@@ -46,7 +49,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 			}
 			createdTime, err := time.Parse(time.RFC3339, item.Created)
 			if err != nil {
-				return err
+				return Err.Wrap(err)
 			}
 			if createdTime.Before(oldestCreation) {
 				continue
@@ -96,7 +99,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 						return nil
 					})
 			if err != nil {
-				return err
+				return Err.Wrap(err)
 			}
 			if conflictFound {
 				_, err = srv.Events.Patch(calId, item.Id, &calendar.Event{
@@ -112,7 +115,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 						}},
 				}).Context(ctx).SendUpdates("all").Do()
 				if err != nil {
-					return err
+					return Err.Wrap(err)
 				}
 			}
 		}
@@ -126,7 +129,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 			return RejectBadInvites(
 				ctx, srv, calId, "", autorejectMatcher, autorejectComment, oldestCreation)
 		}
-		return "", err
+		return "", Err.Wrap(err)
 	}
 	return nextSyncToken, nil
 }
