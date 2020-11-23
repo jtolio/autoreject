@@ -124,7 +124,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 	}
 
 	err = srv.Events.List(calId).SyncToken(lastSyncToken).
-		MaxAttendees(1).SingleEvents(true).Pages(ctx, callback)
+		MaxAttendees(1).SingleEvents(true).MaxResults(1).Pages(ctx, callback)
 	if err != nil {
 		if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusGone {
 			return RejectBadInvites(
