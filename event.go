@@ -51,7 +51,7 @@ func (s *Site) sync(ctx context.Context, chanId string, channel *DSChannel) erro
 		return Err.Wrap(err)
 	}
 
-	nextSyncToken, err := RejectBadInvites(
+	return RejectBadInvites(
 		ctx, srv, channel.CalId, syncToken, func(e *calendar.Event) bool {
 			if !strings.Contains(strings.ToLower(e.Summary), autorejectName) {
 				return false
@@ -61,18 +61,10 @@ func (s *Site) sync(ctx context.Context, chanId string, channel *DSChannel) erro
 			}
 			return true
 		}, autorejectReply,
-		oldestCreation)
-	if err != nil {
-		return err
-	}
-
-	err = s.db.SetStringSetting(ctx, channel.UserId,
-		"synctoken-"+channel.CalId, nextSyncToken)
-	if err != nil {
-		return err
-	}
-
-	return nil
+		oldestCreation, func(ctx context.Context, nextSyncToken string) error {
+			return s.db.SetStringSetting(
+				ctx, channel.UserId, "synctoken-"+channel.CalId, nextSyncToken)
+		})
 }
 
 func (s *Site) Event(w http.ResponseWriter, r *http.Request) {

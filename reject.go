@@ -36,10 +36,11 @@ func parseTime(eventTime *calendar.EventDateTime, isStart bool) (time.Time, erro
 
 func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 	calId, lastSyncToken string, autorejectMatcher func(e *calendar.Event) bool,
-	autorejectComment string, oldestCreation time.Time) (
-	nextSyncToken string, err error) {
+	autorejectComment string, oldestCreation time.Time,
+	syncTokenPersister func(ctx context.Context, nextSyncToken string) error) (
+	err error) {
 	callback := func(e *calendar.Events) error {
-		nextSyncToken = e.NextSyncToken
+		nextSyncToken := e.NextSyncToken
 		for _, item := range e.Items {
 			if len(item.Attendees) != 1 {
 				continue
@@ -119,7 +120,7 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 				}
 			}
 		}
-		return nil
+		return syncTokenPersister(ctx, nextSyncToken)
 	}
 
 	err = srv.Events.List(calId).SyncToken(lastSyncToken).
@@ -127,9 +128,10 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 	if err != nil {
 		if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusGone {
 			return RejectBadInvites(
-				ctx, srv, calId, "", autorejectMatcher, autorejectComment, oldestCreation)
+				ctx, srv, calId, "", autorejectMatcher, autorejectComment, oldestCreation,
+				syncTokenPersister)
 		}
-		return "", Err.Wrap(err)
+		return Err.Wrap(err)
 	}
-	return nextSyncToken, nil
+	return nil
 }
