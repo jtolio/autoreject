@@ -1,14 +1,18 @@
-package main
+package reject
 
 import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/spacemonkeygo/errors"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/googleapi"
 )
+
+var Err = errors.NewClass("error")
 
 func parseTime(eventTime *calendar.EventDateTime, isStart bool) (time.Time, error) {
 	loc := time.UTC
@@ -40,7 +44,6 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 	syncTokenPersister func(ctx context.Context, nextSyncToken string) error) (
 	err error) {
 	callback := func(e *calendar.Events) error {
-		nextSyncToken := e.NextSyncToken
 		for _, item := range e.Items {
 			if len(item.Attendees) != 1 {
 				continue
@@ -120,11 +123,31 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 				}
 			}
 		}
-		return syncTokenPersister(ctx, nextSyncToken)
+		if e.NextSyncToken != "" {
+			err = syncTokenPersister(ctx, "sync:"+e.NextSyncToken)
+			if err != nil {
+				return err
+			}
+		} else if e.NextPageToken != "" {
+			err = syncTokenPersister(ctx, "page:"+e.NextPageToken)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
-	err = srv.Events.List(calId).SyncToken(lastSyncToken).
-		MaxAttendees(1).SingleEvents(true).MaxResults(1).Pages(ctx, callback)
+	query := srv.Events.List(calId).MaxAttendees(1).SingleEvents(true)
+	if strings.HasPrefix(lastSyncToken, "page:") {
+		query = query.PageToken(strings.TrimPrefix(lastSyncToken, "page:"))
+	} else if strings.HasPrefix(lastSyncToken, "sync:") {
+		query = query.SyncToken(strings.TrimPrefix(lastSyncToken, "sync:"))
+	} else if lastSyncToken != "" {
+		// backcompat
+		query = query.SyncToken(lastSyncToken)
+	}
+
+	err = query.Pages(ctx, callback)
 	if err != nil {
 		if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusGone {
 			return RejectBadInvites(

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jtolio/autoreject/reject"
 	"google.golang.org/api/calendar/v3"
 	"gopkg.in/webhelp.v1/whcompat"
 	"gopkg.in/webhelp.v1/whfatal"
@@ -51,7 +52,7 @@ func (s *Site) sync(ctx context.Context, chanId string, channel *DSChannel) erro
 		return Err.Wrap(err)
 	}
 
-	return RejectBadInvites(
+	return reject.RejectBadInvites(
 		ctx, srv, channel.CalId, syncToken, func(e *calendar.Event) bool {
 			if !strings.Contains(strings.ToLower(e.Summary), autorejectName) {
 				return false
