@@ -39,10 +39,28 @@ func parseTime(eventTime *calendar.EventDateTime, isStart bool) (time.Time, erro
 }
 
 func RejectBadInvites(ctx context.Context, srv *calendar.Service,
-	calId, lastSyncToken string, autorejectMatcher func(e *calendar.Event) bool,
+	calId, lastToken string, autorejectMatcher func(e *calendar.Event) bool,
 	autorejectComment string, oldestCreation time.Time,
-	syncTokenPersister func(ctx context.Context, nextSyncToken string) error) (
+	syncTokenPersister func(ctx context.Context, nextToken string) error) (
 	err error) {
+
+	var lastPageToken, lastSyncToken string
+	if strings.HasPrefix(lastToken, "pagesync:") {
+		parts := strings.SplitN(strings.TrimPrefix(lastToken, "pagesync:"), ",", 2)
+		lastPageToken = parts[0]
+		lastSyncToken = parts[1]
+	} else if strings.HasPrefix(lastToken, "page:") {
+		lastPageToken = strings.TrimPrefix(lastToken, "page:")
+		lastSyncToken = ""
+	} else if strings.HasPrefix(lastToken, "sync:") {
+		lastPageToken = ""
+		lastSyncToken = strings.TrimPrefix(lastToken, "sync:")
+	} else if lastToken != "" {
+		// backcompat
+		lastPageToken = ""
+		lastSyncToken = lastToken
+	}
+
 	callback := func(e *calendar.Events) error {
 		for _, item := range e.Items {
 			if len(item.Attendees) != 1 {
@@ -129,7 +147,10 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 				return err
 			}
 		} else if e.NextPageToken != "" {
-			err = syncTokenPersister(ctx, "page:"+e.NextPageToken)
+			if strings.Contains(e.NextPageToken, ",") {
+				return Err.New("page token has a comma")
+			}
+			err = syncTokenPersister(ctx, "pagesync:"+e.NextPageToken+","+lastSyncToken)
 			if err != nil {
 				return err
 			}
@@ -138,15 +159,12 @@ func RejectBadInvites(ctx context.Context, srv *calendar.Service,
 	}
 
 	query := srv.Events.List(calId).MaxAttendees(1).SingleEvents(true)
-	if strings.HasPrefix(lastSyncToken, "page:") {
-		query = query.PageToken(strings.TrimPrefix(lastSyncToken, "page:"))
-	} else if strings.HasPrefix(lastSyncToken, "sync:") {
-		query = query.SyncToken(strings.TrimPrefix(lastSyncToken, "sync:"))
-	} else if lastSyncToken != "" {
-		// backcompat
-		query = query.SyncToken(lastSyncToken)
+	if lastSyncToken != "" {
+		query.SyncToken(lastSyncToken)
 	}
-
+	if lastPageToken != "" {
+		query.PageToken(lastPageToken)
+	}
 	err = query.Pages(ctx, callback)
 	if err != nil {
 		if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusGone {
